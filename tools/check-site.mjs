@@ -156,6 +156,22 @@ try {
       notes.push(`[${width}px] ordmärket på 1 rad`);
     }
 
+    // A3 (skarpare): karaktärernas namn och epitet måste återges ORDAGRANT
+    // som i källdokumentet — även där källsträngen ser trasig ut. Att
+    // "städa" källan är en innehållsändring, inte ett designval.
+    const SOURCE_EPITHETS = [
+      ['Zyp', 'Den nyfikna'],
+      ['Dolm', 'Den försiktiga'],
+      ['Bix', 'Translation äxlaren'],
+    ];
+    const chrText = await page.locator('#karaktarer').innerText();
+    for (const [name, epithet] of SOURCE_EPITHETS) {
+      if (!chrText.includes(name)) failures.push(`[${width}px] karaktären ${name} saknas`);
+      if (!chrText.includes(epithet)) {
+        failures.push(`[${width}px] ${name}: epitetet "${epithet}" saknas (källans ordalydelse)`);
+      }
+    }
+
     // A5: console
     if (consoleErrors.length) {
       failures.push(`[${width}px] console-fel: ${consoleErrors.join(' | ')}`);
