@@ -1,0 +1,740 @@
+/* FUZZLINGS — pitchsajt.
+   Mobile-first. Allt innehåll stackas vertikalt; ingen horisontell
+   scrollyta används någonstans, så sidan kan inte få overflow i sidled. */
+
+:root {
+  --bg: #120d1f;
+  --bg-2: #1b1430;
+  --card: #221a3c;
+  --card-2: #2b2150;
+  --line: rgba(255, 255, 255, 0.11);
+  --ink: #f4f0ff;
+  --ink-dim: #c3b9dd;
+  --ink-faint: #9488b5;
+
+  --zyp: #ff8a2b;
+  --dolm: #8fa8c0;
+  --bix: #ef4ba2;
+  --bix-2: #ffd54a;
+  --neon: #4ee0c1;
+
+  --r: 18px;
+  --pad: 20px;
+  --maxw: 760px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  /* Hård spärr mot sidoscroll oavsett innehåll. */
+  max-width: 100%;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  background:
+    radial-gradient(120% 60% at 85% -8%, rgba(239, 75, 162, 0.22), transparent 60%),
+    radial-gradient(110% 55% at 5% 4%, rgba(255, 138, 43, 0.18), transparent 62%),
+    radial-gradient(130% 70% at 50% 108%, rgba(78, 224, 193, 0.12), transparent 65%),
+    var(--bg);
+  color: var(--ink);
+  font-family: "Nunito", "Trebuchet MS", "Segoe UI", system-ui, -apple-system,
+    sans-serif;
+  font-size: 17px;
+  line-height: 1.62;
+  /* Långa ord/tekniska termer får aldrig bredda layouten. */
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+p,
+li,
+dd,
+dt,
+h1,
+h2,
+h3,
+h4 {
+  overflow-wrap: break-word;
+}
+
+em {
+  font-style: normal;
+  font-weight: 800;
+  color: var(--neon);
+  letter-spacing: 0.02em;
+}
+
+strong {
+  color: #fff;
+  font-weight: 800;
+}
+
+/* Dold men nåbar för tangentbord/skärmläsare. Inte "left: -9999px" —
+   den tekniken sticker ut utanför viewporten och riskerar sidoscroll. */
+.skip {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.skip:focus {
+  position: fixed;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip-path: none;
+  left: 8px;
+  top: 8px;
+  z-index: 99;
+  background: var(--neon);
+  color: #06201a;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-weight: 800;
+}
+
+/* ---------- navigering ---------- */
+
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(18, 13, 31, 0.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+  max-width: 100%;
+}
+
+.nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 auto;
+  padding: 10px 12px;
+  list-style: none;
+  max-width: var(--maxw);
+}
+
+.nav a {
+  display: block;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  text-decoration: none;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.nav a:hover,
+.nav a:focus-visible {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.nav a[aria-current="true"] {
+  background: var(--neon);
+  border-color: var(--neon);
+  color: #06201a;
+}
+
+/* ---------- gemensamma block ---------- */
+
+main {
+  max-width: 100%;
+}
+
+.hero,
+.sec {
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 44px var(--pad) 8px;
+}
+
+.sec {
+  padding-top: 54px;
+  scroll-margin-top: 64px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--neon);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.14;
+  margin: 0 0 12px;
+  letter-spacing: -0.01em;
+}
+
+.sec h2 {
+  font-size: clamp(2rem, 9.5vw, 2.9rem);
+  font-weight: 900;
+}
+
+.lede {
+  margin: 0 0 24px;
+  font-size: 1.08rem;
+  color: var(--ink-dim);
+}
+
+.sub {
+  margin: 34px 0 14px;
+  font-size: 1.22rem;
+  font-weight: 900;
+  color: #fff;
+  padding-left: 12px;
+  border-left: 4px solid var(--bix);
+}
+
+.aside {
+  margin: 18px 0 0;
+  padding: 14px 16px;
+  border-left: 3px solid var(--line);
+  font-size: 0.95rem;
+  color: var(--ink-faint);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 0 12px 12px 0;
+}
+
+.src {
+  margin: 26px 0 0;
+  font-size: 0.86rem;
+  color: var(--ink-faint);
+}
+.src em {
+  color: var(--ink-dim);
+  font-weight: 700;
+}
+
+/* ---------- hero ---------- */
+
+.hero {
+  padding-top: 34px;
+}
+
+.wordmark {
+  /* 12.4vw håller de nio bokstäverna på EN rad hela vägen ner till 320px
+     (jfr kontrollen i tools/check-site.mjs). */
+  font-size: clamp(2.2rem, 12.4vw, 5.5rem);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  margin: 0 0 16px;
+  background: linear-gradient(104deg, var(--zyp) 0%, var(--bix) 52%, var(--neon) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.logline {
+  margin: 0 0 28px;
+  font-size: 1.22rem;
+  font-weight: 700;
+  line-height: 1.45;
+  color: #fff;
+}
+
+.facts {
+  list-style: none;
+  margin: 0 0 26px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.facts li {
+  background: linear-gradient(180deg, var(--card-2), var(--card));
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 14px 16px;
+}
+
+.facts-k {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.facts-v {
+  display: block;
+  font-size: 1.3rem;
+  font-weight: 900;
+  color: #fff;
+  margin: 2px 0 2px;
+}
+
+.facts-n {
+  display: block;
+  font-size: 0.92rem;
+  color: var(--ink-dim);
+}
+
+.panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 18px var(--pad);
+  margin: 0 0 16px;
+}
+
+.panel p {
+  margin: 0 0 10px;
+}
+.panel p:last-child {
+  margin-bottom: 0;
+}
+
+.panel-h {
+  margin: 0 0 10px;
+  font-size: 1.12rem;
+  font-weight: 900;
+  color: var(--neon);
+}
+
+.panel-note {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 0.95rem;
+  color: var(--ink-dim);
+}
+
+.panel-why {
+  border-color: rgba(239, 75, 162, 0.45);
+  box-shadow: 0 0 0 1px rgba(239, 75, 162, 0.12) inset;
+}
+
+/* ---------- karaktärskort ---------- */
+
+.chr {
+  --c: var(--neon);
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--c);
+  border-radius: var(--r);
+  padding: 18px var(--pad);
+  margin: 0 0 16px;
+  overflow: hidden;
+}
+
+.chr::after {
+  /* Dekorativ färgglöd — hålls innanför kortet (ingen utbuktning). */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(120% 90% at 100% 0%, var(--c), transparent 58%);
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.chr-zyp {
+  --c: var(--zyp);
+}
+.chr-dolm {
+  --c: var(--dolm);
+}
+.chr-bix {
+  --c: var(--bix);
+}
+
+.chr-top {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.chr-dot {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.06), 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+/* Bix är magenta med gula fläckar — visa det i färgpucken. */
+.chr-bix .chr-dot {
+  background:
+    radial-gradient(circle at 30% 32%, var(--bix-2) 0 16%, transparent 17%),
+    radial-gradient(circle at 70% 60%, var(--bix-2) 0 12%, transparent 13%),
+    radial-gradient(circle at 42% 76%, var(--bix-2) 0 9%, transparent 10%),
+    var(--bix);
+}
+
+.chr h3 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 900;
+  color: var(--c);
+  letter-spacing: 0.01em;
+}
+
+.chr-role {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink-dim);
+}
+
+.chr-dl {
+  position: relative;
+  margin: 0;
+}
+
+.chr-dl dt {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-top: 14px;
+}
+
+.chr-dl dt:first-child {
+  margin-top: 0;
+}
+
+.chr-dl dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+}
+
+/* ---------- pilotmanus ---------- */
+
+.beats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: beat;
+}
+
+.beat {
+  position: relative;
+  padding: 0 0 26px 22px;
+  border-left: 2px solid var(--line);
+}
+
+.beat:last-child {
+  border-left-color: transparent;
+  padding-bottom: 8px;
+}
+
+.beat::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 7px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--zyp);
+  box-shadow: 0 0 0 4px var(--bg);
+}
+
+.beat-time {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  color: var(--neon);
+}
+
+.beat-h {
+  margin: 2px 0 8px;
+  font-size: 1.3rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+
+.beat p:last-child {
+  margin: 0;
+  color: var(--ink-dim);
+}
+
+/* ---------- storyboard (kort, aldrig tabell) ---------- */
+
+.sb {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.sb-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 16px;
+}
+
+.sb-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.sb-no {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 9px;
+  background: var(--bix);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-time {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: var(--neon);
+}
+
+.sb-shot {
+  margin: 0 0 6px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.sb-move {
+  margin: 0;
+  font-size: 0.95rem;
+  color: var(--ink-dim);
+}
+
+/* ---------- produktion ---------- */
+
+.bullets {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.bullets li {
+  margin-bottom: 12px;
+  color: var(--ink-dim);
+}
+.bullets li:last-child {
+  margin-bottom: 0;
+}
+.bullets li::marker {
+  color: var(--zyp);
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.timeline li {
+  display: grid;
+  gap: 4px;
+  padding-left: 14px;
+  border-left: 3px solid var(--dolm);
+}
+
+.tl-when {
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--zyp);
+}
+
+.tl-what {
+  color: var(--ink-dim);
+}
+
+/* ---------- research ---------- */
+
+.chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.chips li {
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: rgba(78, 224, 193, 0.13);
+  border: 1px solid rgba(78, 224, 193, 0.38);
+  color: #d8fff7;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.findings,
+.gaps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: item;
+  display: grid;
+  gap: 14px;
+}
+
+.findings li,
+.gaps li {
+  counter-increment: item;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px var(--pad) 16px 16px;
+}
+
+.findings li h4,
+.gaps li h4 {
+  margin: 0 0 8px;
+  font-size: 1.06rem;
+  font-weight: 900;
+  color: #fff;
+  /* Numret ligger i textflödet, så inget kan hamna utanför kortet. */
+}
+
+.findings li h4::before,
+.gaps li h4::before {
+  content: counter(item);
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  margin-right: 9px;
+  padding: 0 5px;
+  border-radius: 7px;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  vertical-align: 2px;
+}
+
+.findings li h4::before {
+  background: var(--zyp);
+  color: #2a1200;
+}
+
+.gaps li h4::before {
+  background: var(--bix);
+  color: #fff;
+}
+
+.findings li p,
+.gaps li p {
+  margin: 0;
+  color: var(--ink-dim);
+  font-size: 0.98rem;
+}
+
+/* ---------- footer ---------- */
+
+.foot {
+  max-width: var(--maxw);
+  margin: 56px auto 0;
+  padding: 26px var(--pad) 44px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  color: var(--ink-faint);
+  font-size: 0.9rem;
+}
+
+.foot p {
+  margin: 0 0 8px;
+}
+
+.foot-mark {
+  font-size: 1.5rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  background: linear-gradient(96deg, var(--zyp), var(--bix) 60%, var(--neon));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.foot-note {
+  margin-top: 14px;
+  font-size: 0.8rem;
+  color: #6f6490;
+}
+
+/* ---------- större skärmar ---------- */
+
+@media (min-width: 560px) {
+  body {
+    font-size: 18px;
+  }
+  .facts {
+    grid-template-columns: 1fr 1fr;
+  }
+  .sb {
+    grid-template-columns: 1fr 1fr;
+  }
+  .timeline li {
+    grid-template-columns: 150px 1fr;
+    gap: 16px;
+    align-items: baseline;
+  }
+}
+
+@media (min-width: 900px) {
+  :root {
+    --maxw: 880px;
+    --pad: 28px;
+  }
+  .hero {
+    padding-top: 64px;
+  }
+  .findings,
+  .gaps {
+    gap: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
