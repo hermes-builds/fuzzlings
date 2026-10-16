@@ -4,3 +4,6 @@
 *.key
 node_modules/
 .DS_Store
+
+# Genererade ljudeffekter: återskapas med animatic/make-sfx.py ur sfx.json.
+animatic/sfx/

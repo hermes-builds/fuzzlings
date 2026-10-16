@@ -733,6 +733,78 @@ h4 {
   }
 }
 
+/* ---------- Pilot-animatic ---------- */
+.vid {
+  margin: 0 0 20px;
+  padding: 0;
+}
+
+.vid-el {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  background: #06040c;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+}
+
+.vid figcaption {
+  margin: 10px 2px 0;
+  font-size: 0.88rem;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+
+.vid-meta {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.vid-meta li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.vid-k {
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  align-self: center;
+}
+
+.vid-v {
+  font-weight: 800;
+  color: #fff;
+  text-align: right;
+}
+
+@media (min-width: 620px) {
+  .vid-meta {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .vid-meta li {
+    display: block;
+  }
+  .vid-v {
+    display: block;
+    text-align: left;
+    margin-top: 2px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;

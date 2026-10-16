@@ -1,0 +1,29 @@
+{
+  "_comment": "Sound design map for the Fuzzlings animatic. 'at' = seconds on the 120 s timeline, 'gain' = dB applied at mix time, 'dur' = requested length from the ElevenLabs sound-effects API. Prompts are deliberately wordless: creature vocalisations are gibberish, no language.",
+  "cues": [
+    { "name": "amb_park",      "at": 0.0,   "dur": 22, "gain": -20, "loop_until": 120, "prompt": "quiet eerie abandoned amusement park night ambience, soft wind, distant metal rattle, faint insect chirps, no music, no voices" },
+    { "name": "bzzt_neon",     "at": 2.2,   "dur": 3,  "gain": -7,  "prompt": "old broken neon sign buzzing and flickering to life, electric bzzt crackle, short" },
+    { "name": "ffshh_hatch",   "at": 6.3,   "dur": 3,  "gain": -3,  "prompt": "pressurized spaceship hatch opening, sharp air release hiss FFSHH, then soft metallic clank" },
+    { "name": "pirr_curious",  "at": 13.2,  "dur": 3,  "gain": -4,  "prompt": "tiny cute alien creature curious chirping purr, pirr pirr, sniffing a rubbery surface, cartoon, gibberish, no words" },
+    { "name": "viip_warning",  "at": 18.6,  "dur": 4,  "gain": -5,  "prompt": "retro sci-fi radar dish spinning with two-tone warning beeps, viip viip viip, small servo whine" },
+    { "name": "floinng_first", "at": 25.3,  "dur": 2,  "gain": -2,  "prompt": "huge cartoon trampoline boing, springy metallic FLOINNG, comedic" },
+    { "name": "hwop_yelp",     "at": 25.9,  "dur": 2,  "gain": -4,  "prompt": "small cartoon creature surprised yelp HWOP, gibberish alien squeak, no words" },
+    { "name": "land_thud",     "at": 32.1,  "dur": 3,  "gain": -5,  "prompt": "soft body landing thud on a trampoline mat followed by a small second bounce, cartoon" },
+    { "name": "pip_victory",   "at": 36.4,  "dur": 3,  "gain": -5,  "prompt": "hyperactive tiny alien creature excited chirps pip pip pip, happy cartoon squeaks, gibberish, no words" },
+    { "name": "hihihi_bix",    "at": 41.0,  "dur": 4,  "gain": -4,  "prompt": "mischievous small furry creature giggling, hihihi cartoon chuckle, gibberish, no words" },
+    { "name": "ping_scanner",  "at": 45.5,  "dur": 4,  "gain": -8,  "prompt": "slow retro sonar scanner pings, piiip ... piiip, soft electronic sweep" },
+    { "name": "floinng_duo",   "at": 48.6,  "dur": 4,  "gain": -5,  "prompt": "two springy cartoon trampoline boings in a row, comedic floing floing" },
+    { "name": "wooah_panic",   "at": 52.8,  "dur": 3,  "gain": -3,  "prompt": "cartoon creature panicked falling yell WOOOAH, alien gibberish, no words" },
+    { "name": "floinng_chain", "at": 55.6,  "dur": 15, "gain": -3,  "prompt": "escalating series of cartoon trampoline boings speeding up, floing floing FLOING, rhythmic comedic crescendo" },
+    { "name": "whoosh_spin",   "at": 70.6,  "dur": 3,  "gain": -5,  "prompt": "fast cartoon spin whoosh through the air, swoosh with light doppler" },
+    { "name": "bonk_launch",   "at": 75.8,  "dur": 3,  "gain": -4,  "prompt": "comedic cartoon collision bonk launching two bodies away, rubbery boing tail" },
+    { "name": "krrrik_wheel",  "at": 82.4,  "dur": 8,  "gain": -4,  "prompt": "giant rusty metal ferris wheel starting to rotate, long creaking groan KRRRIK, heavy bearings squeal" },
+    { "name": "slowmo_arc",    "at": 90.2,  "dur": 10, "gain": -6,  "prompt": "slow motion dramatic airy whoosh with low rumble and rising shimmer, no music" },
+    { "name": "bum_bum_bum",   "at": 100.6, "dur": 4,  "gain": -2,  "prompt": "three soft body thuds landing one on top of the other in quick succession, cartoon bum bum bum" },
+    { "name": "beep_boop",     "at": 104.0, "dur": 4,  "gain": -4,  "prompt": "retro spaceship console waking up, beep beep boop, small relay clicks and power-up hum" },
+    { "name": "vrrrr_motor",   "at": 109.4, "dur": 5,  "gain": -4,  "prompt": "small electric servo motor whirring as a sci-fi door slides shut, VRRRR, ending with a soft clunk" },
+    { "name": "gulp_trio",     "at": 112.6, "dur": 3,  "gain": -6,  "prompt": "three tiny alien creatures making a worried uh-oh gulp squeak together, gibberish, no words" },
+    { "name": "pop_final",     "at": 117.9, "dur": 2,  "gain": -2,  "prompt": "short comedic cartoon POP, bright bubble pop, single hit" },
+    { "name": "logo_sparkle",  "at": 118.3, "dur": 3,  "gain": -9,  "prompt": "short bright magical sparkle shimmer sting, playful, no music melody" }
+  ]
+}
