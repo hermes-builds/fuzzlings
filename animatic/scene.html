@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8" />
+<title>Fuzzlings animatic — frame renderer</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #06040c; overflow: hidden; }
+  #stage { display: block; }
+</style>
+</head>
+<body>
+<svg id="stage" width="1920" height="1080" viewBox="0 0 1920 1080"
+     xmlns="http://www.w3.org/2000/svg" shape-rendering="geometricPrecision"></svg>
+<script>
+/* ------------------------------------------------------------------
+   FUZZLINGS — "Studsfällan" animatic frame renderer.
+   Deterministic: renderFrame(i) must always paint the same pixels.
+   World coords: ground at y=1500, park spans x 0..3840.
+------------------------------------------------------------------- */
+
+const FPS = 20;
+const DUR = 120;                 // seconds, matches storyboard 0:00-2:00
+
+const C = {
+  bg:    '#120d1f',
+  bg2:   '#1b1430',
+  zyp:   '#ff8a2b',
+  zypD:  '#c2561a',
+  dolm:  '#8fa8c0',
+  dolmD: '#64798f',
+  bix:   '#ef4ba2',
+  bixS:  '#ffd54a',
+  neon:  '#4ee0c1',
+  ink:   '#f4f0ff',
+  rust:  '#6b4a3a',
+  rust2: '#8a5c42',
+  grass: '#2c5742',
+  grass2:'#3f7a57',
+  metal: '#3a3550',
+};
+
+const GROUND = 1500;
+
+/* ---------- small math helpers ---------- */
+const lerp = (a, b, u) => a + (b - a) * clamp01(u);
+const clamp01 = (u) => (u < 0 ? 0 : u > 1 ? 1 : u);
+const ease = (u) => { u = clamp01(u); return u * u * (3 - 2 * u); };
+const easeOut = (u) => { u = clamp01(u); return 1 - (1 - u) * (1 - u); };
+const easeIn = (u) => { u = clamp01(u); return clamp01(u) * clamp01(u); };
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+/* deterministic pseudo-flicker keyed on a time slot */
+function flick(slot, salt) {
+  const r = mulberry32(((slot * 2654435761) ^ (salt * 40503)) >>> 0);
+  return r();
+}
+const f2 = (n) => Math.round(n * 100) / 100;
+
+/* ---------- character art ---------- */
+
+/* Zyp: small tight orange sphere, THREE pearl eyes stacked vertically,
+   spiral tail-antenna that uncoils when excited. */
+function zyp(o) {
+  const x = o.x, y = o.y, s = (o.s || 1);
+  const R = 38 * s;
+  const sq = o.sq == null ? 1 : o.sq;          // >1 = stretched tall
+  const rot = o.rot || 0;
+  const eyes = o.eyes || 'normal';
+  const spiral = o.spiral == null ? 0 : o.spiral;
+  const flail = o.flail || 0;
+  const look = o.look || 0;
+  let g = '';
+
+  // shadow on ground
+  if (o.shadow !== false) g += shadow(x, o.gy == null ? y + R : o.gy, R * 1.25, o.shA == null ? 0.35 : o.shA);
+
+  g += `<g transform="translate(${f2(x)},${f2(y)}) rotate(${f2(rot)}) scale(${f2(1 / sq)},${f2(sq)})">`;
+
+  // legs + arms (thin stick limbs)
+  const legSwing = Math.sin(flail * 6.3) * 28 * (o.flail ? 1 : 0.25);
+  g += limb(-R * 0.4, R * 0.75, -R * 0.55 - legSwing * 0.4, R * 1.5 + Math.abs(legSwing) * 0.3, C.zypD, 5 * s, 6 * s);
+  g += limb(R * 0.4, R * 0.75, R * 0.6 + legSwing * 0.4, R * 1.5 - Math.abs(legSwing) * 0.3, C.zypD, 5 * s, 6 * s);
+  const armA = o.arms == null ? 25 : o.arms;
+  g += limb(-R * 0.85, -R * 0.05, -R * 1.55, -R * 0.05 - armA * s * 0.9 - flail * 10, C.zypD, 5 * s, 6 * s);
+  g += limb(R * 0.85, -R * 0.05, R * 1.55, -R * 0.05 - armA * s * 0.9 + flail * 10, C.zypD, 5 * s, 6 * s);
+
+  // spiral tail-antenna, top-right; uncoils with `spiral`
+  g += spiralTail(R, spiral, s);
+
+  // body: short dense fur = subtle notched rim
+  g += `<circle cx="0" cy="0" r="${f2(R)}" fill="${C.zyp}"/>`;
+  g += furRim(R, 7, 3.0 * s, C.zyp, 0.9);
+  g += `<circle cx="${f2(-R * 0.28)}" cy="${f2(-R * 0.3)}" r="${f2(R * 0.62)}" fill="#ffb066" opacity="0.35"/>`;
+  g += `<path d="M ${f2(-R)} ${f2(R * 0.18)} A ${f2(R)} ${f2(R)} 0 0 0 ${f2(R)} ${f2(R * 0.18)} Z" fill="${C.zypD}" opacity="0.22"/>`;
+
+  // three pearl eyes stacked VERTICALLY
+  const eyeX = R * 0.05;
+  const ys = [-R * 0.42, 0, R * 0.42];
+  for (let k = 0; k < 3; k++) {
+    g += eyeBall(eyeX + look * 1.5, ys[k], R * 0.2, eyes, look, s);
+  }
+  // mouth
+  g += mouth(eyes, R * 0.1, R * 0.74, R * 0.3, C.zypD);
+  g += '</g>';
+  return g;
+}
+
+/* Dolm: biggest, shaggy blue-grey, two tired half-closed eyes,
+   little parabolic scanner dish on top that spins. */
+function dolm(o) {
+  const x = o.x, y = o.y, s = (o.s || 1);
+  const R = 62 * s;
+  const sq = o.sq == null ? 1 : o.sq;
+  const rot = o.rot || 0;
+  const eyes = o.eyes || 'tired';
+  const spin = o.spin || 0;
+  const ping = o.ping || 0;
+  let g = '';
+  if (o.shadow !== false) g += shadow(x, o.gy == null ? y + R * 0.95 : o.gy, R * 1.2, o.shA == null ? 0.35 : o.shA);
+
+  g += `<g transform="translate(${f2(x)},${f2(y)}) rotate(${f2(rot)}) scale(${f2(1 / sq)},${f2(sq)})">`;
+
+  // stubby limbs (Dolm rolls more than walks)
+  g += limb(-R * 0.42, R * 0.72, -R * 0.52, R * 1.08, C.dolmD, 8 * s, 8 * s);
+  g += limb(R * 0.42, R * 0.72, R * 0.52, R * 1.08, C.dolmD, 8 * s, 8 * s);
+  if (o.armsCrossed) {
+    g += `<path d="M ${f2(-R * 0.75)} ${f2(R * 0.05)} L ${f2(R * 0.5)} ${f2(R * 0.3)}" stroke="${C.dolmD}" stroke-width="${f2(9 * s)}" stroke-linecap="round" fill="none"/>`;
+    g += `<path d="M ${f2(R * 0.75)} ${f2(R * 0.05)} L ${f2(-R * 0.5)} ${f2(R * 0.3)}" stroke="${C.dolmD}" stroke-width="${f2(9 * s)}" stroke-linecap="round" fill="none"/>`;
+  } else {
+    const aw = o.arms == null ? 0 : o.arms;
+    g += limb(-R * 0.8, R * 0.02, -R * 1.35, R * 0.02 - aw * s, C.dolmD, 8 * s, 9 * s);
+    g += limb(R * 0.8, R * 0.02, R * 1.35, R * 0.02 - aw * s, C.dolmD, 8 * s, 9 * s);
+  }
+
+  // scanner dish on top
+  const dishY = -R - 26 * s;
+  g += `<path d="M 0 ${f2(-R * 0.9)} L 0 ${f2(dishY + 6 * s)}" stroke="${C.dolmD}" stroke-width="${f2(5 * s)}" stroke-linecap="round"/>`;
+  g += `<g transform="translate(0,${f2(dishY)}) rotate(${f2(spin)})">`;
+  g += `<ellipse cx="0" cy="0" rx="${f2(24 * s)}" ry="${f2(8 * s)}" fill="#b9cad8"/>`;
+  g += `<ellipse cx="0" cy="${f2(-2.5 * s)}" rx="${f2(24 * s)}" ry="${f2(7 * s)}" fill="#e6f0f6"/>`;
+  g += `<circle cx="0" cy="${f2(-4 * s)}" r="${f2(3.5 * s)}" fill="${C.dolmD}"/>`;
+  g += '</g>';
+  if (ping > 0) {
+    for (let k = 0; k < 3; k++) {
+      const u = (ping + k * 0.33) % 1;
+      g += `<circle cx="0" cy="${f2(dishY)}" r="${f2((12 + u * 58) * s)}" fill="none" stroke="${C.neon}" stroke-width="${f2(3 * s)}" opacity="${f2(0.55 * (1 - u))}"/>`;
+    }
+  }
+
+  // shaggy body
+  g += shaggyBody(R, C.dolm, 1337);
+  g += `<circle cx="${f2(-R * 0.3)}" cy="${f2(-R * 0.32)}" r="${f2(R * 0.55)}" fill="#b4c7d8" opacity="0.3"/>`;
+  g += `<path d="M ${f2(-R * 0.95)} ${f2(R * 0.25)} A ${f2(R)} ${f2(R)} 0 0 0 ${f2(R * 0.95)} ${f2(R * 0.25)} Z" fill="${C.dolmD}" opacity="0.25"/>`;
+
+  // two tired eyes
+  for (const ex of [-R * 0.33, R * 0.33]) {
+    g += eyeBall(ex, -R * 0.06, R * 0.19, eyes, o.look || 0, s, C.dolm);
+  }
+  g += mouth(eyes, 0, R * 0.52, R * 0.3, C.dolmD);
+  g += '</g>';
+  return g;
+}
+
+/* Bix: medium magenta sphere, yellow spots, spiky fur,
+   big expressive ear-antennas. */
+function bix(o) {
+  const x = o.x, y = o.y, s = (o.s || 1);
+  const R = 48 * s;
+  const sq = o.sq == null ? 1 : o.sq;
+  const rot = o.rot || 0;
+  const eyes = o.eyes || 'sly';
+  const ear = o.ear == null ? 1 : o.ear;    // 1 = up/alert, -1 = swept back, 0 = droop
+  const flail = o.flail || 0;
+  let g = '';
+  if (o.shadow !== false) g += shadow(x, o.gy == null ? y + R : o.gy, R * 1.2, o.shA == null ? 0.35 : o.shA);
+
+  g += `<g transform="translate(${f2(x)},${f2(y)}) rotate(${f2(rot)}) scale(${f2(1 / sq)},${f2(sq)})">`;
+
+  const legSwing = Math.sin(flail * 6.3) * 26;
+  g += limb(-R * 0.4, R * 0.78, -R * 0.62 - legSwing * 0.3, R * 1.42, C.bix, 6 * s, 7 * s);
+  g += limb(R * 0.4, R * 0.78, R * 0.62 + legSwing * 0.3, R * 1.42, C.bix, 6 * s, 7 * s);
+  const armA = o.arms == null ? 30 : o.arms;
+  g += limb(-R * 0.82, 0, -R * 1.5, -armA * s, C.bix, 6 * s, 7 * s);
+  g += limb(R * 0.82, 0, R * 1.5, -armA * s, C.bix, 6 * s, 7 * s);
+
+  // ear-antennas (drawn behind body)
+  for (const side of [-1, 1]) {
+    const tipX = side * (R * 0.95 + 26 * s) * (ear < 0 ? 1.25 : 1);
+    const tipY = -R * 1.05 - ear * 52 * s;
+    const ctlX = side * R * 1.25;
+    const ctlY = -R * 0.95 - ear * 16 * s;
+    g += `<path d="M ${f2(side * R * 0.5)} ${f2(-R * 0.72)} Q ${f2(ctlX)} ${f2(ctlY)} ${f2(tipX)} ${f2(tipY)}"
+      stroke="${C.bix}" stroke-width="${f2(13 * s)}" stroke-linecap="round" fill="none"/>`;
+    g += `<ellipse cx="${f2(tipX)}" cy="${f2(tipY)}" rx="${f2(10 * s)}" ry="${f2(13 * s)}"
+      transform="rotate(${f2(side * 18)},${f2(tipX)},${f2(tipY)})" fill="${C.bixS}"/>`;
+  }
+
+  // spiky body
+  g += spikyBody(R, C.bix, 7777);
+  // yellow spots (fixed pattern, mirrors the site's CSS character chip)
+  const spots = [[-0.34, -0.3, 0.2], [0.3, 0.12, 0.15], [-0.1, 0.44, 0.12], [0.44, -0.4, 0.1]];
+  for (const [sx, sy, sr] of spots) {
+    g += `<circle cx="${f2(sx * R)}" cy="${f2(sy * R)}" r="${f2(sr * R)}" fill="${C.bixS}"/>`;
+  }
+  g += `<circle cx="${f2(-R * 0.3)}" cy="${f2(-R * 0.34)}" r="${f2(R * 0.5)}" fill="#ff8cc6" opacity="0.25"/>`;
+
+  for (const ex of [-R * 0.3, R * 0.3]) {
+    g += eyeBall(ex, -R * 0.08, R * 0.19, eyes, o.look || 0, s, C.bix);
+  }
+  g += mouth(eyes === 'sly' ? 'grin' : eyes, 0, R * 0.52, R * 0.34, '#7a1142');
+  g += '</g>';
+  return g;
+}
+
+/* ---------- shared character parts ---------- */
+function shadow(x, y, r, a) {
+  return `<ellipse cx="${f2(x)}" cy="${f2(y)}" rx="${f2(r)}" ry="${f2(r * 0.26)}" fill="#07040f" opacity="${f2(a)}"/>`;
+}
+function limb(x1, y1, x2, y2, col, w, hand) {
+  return `<path d="M ${f2(x1)} ${f2(y1)} L ${f2(x2)} ${f2(y2)}" stroke="${col}" stroke-width="${f2(w)}" stroke-linecap="round" fill="none"/>`
+    + `<circle cx="${f2(x2)}" cy="${f2(y2)}" r="${f2(hand * 0.6)}" fill="${col}"/>`;
+}
+/* Zyp's spiral tail-antenna: coiled spring at 0, stretched out at 1 */
+function spiralTail(R, open, s) {
+  const turns = lerp(2.6, 1.1, open);
+  const stretch = lerp(0, 1, open);
+  const steps = 46;
+  let d = '';
+  for (let k = 0; k <= steps; k++) {
+    const u = k / steps;
+    const a = u * Math.PI * 2 * turns - Math.PI * 0.4;
+    const rad = (6 + u * 20) * s * lerp(1, 0.75, open);
+    const px = R * 0.62 + Math.cos(a) * rad + u * stretch * 42 * s;
+    const py = -R * 0.62 + Math.sin(a) * rad - u * stretch * 54 * s;
+    d += (k === 0 ? 'M ' : 'L ') + f2(px) + ' ' + f2(py) + ' ';
+  }
+  const tipX = R * 0.62 + Math.cos(Math.PI * 2 * turns - Math.PI * 0.4) * (26 * s * lerp(1, 0.75, open)) + stretch * 42 * s;
+  const tipY = -R * 0.62 + Math.sin(Math.PI * 2 * turns - Math.PI * 0.4) * (26 * s * lerp(1, 0.75, open)) - stretch * 54 * s;
+  return `<path d="${d}" stroke="${C.zypD}" stroke-width="${f2(5.5 * s)}" fill="none" stroke-linecap="round"/>`
+    + `<circle cx="${f2(tipX)}" cy="${f2(tipY)}" r="${f2(5 * s)}" fill="${C.zypD}"/>`;
+}
+function furRim(R, n, len, col, op) {
+  let d = '';
+  for (let k = 0; k < n * 6; k++) {
+    const a = (k / (n * 6)) * Math.PI * 2;
+    const r1 = R - 1;
+    const r2 = R + len * (0.6 + 0.4 * Math.sin(k * 2.3));
+    const a2 = a + 0.06;
+    d += `M ${f2(Math.cos(a) * r1)} ${f2(Math.sin(a) * r1)} L ${f2(Math.cos(a2) * r2)} ${f2(Math.sin(a2) * r2)} `;
+  }
+  return `<path d="${d}" stroke="${col}" stroke-width="${f2(len * 0.9)}" stroke-linecap="round" opacity="${op}" fill="none"/>`;
+}
+function shaggyBody(R, col, seed) {
+  const rnd = mulberry32(seed);
+  const n = 46;
+  let d = '';
+  for (let k = 0; k <= n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    const rr = R * (0.94 + rnd() * 0.22);
+    const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+    d += (k === 0 ? 'M ' : 'L ') + f2(px) + ' ' + f2(py) + ' ';
+  }
+  return `<path d="${d}Z" fill="${col}"/>`;
+}
+function spikyBody(R, col, seed) {
+  const rnd = mulberry32(seed);
+  const n = 34;
+  let d = '';
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2;
+    const inner = R * 0.97;
+    const outer = R * (1.14 + rnd() * 0.14);
+    const am = a + Math.PI / n;
+    d += (k === 0 ? 'M ' : 'L ') + f2(Math.cos(a) * inner) + ' ' + f2(Math.sin(a) * inner) + ' ';
+    d += 'L ' + f2(Math.cos(am) * outer) + ' ' + f2(Math.sin(am) * outer) + ' ';
+  }
+  return `<path d="${d}Z" fill="${col}"/>`;
+}
+function eyeBall(cx, cy, r, state, look, s, bodyCol) {
+  const sc = state === 'shock' ? 1.45 : state === 'wide' ? 1.2 : 1;
+  let g = '';
+  if (state === 'happy' || state === 'closed') {
+    return `<path d="M ${f2(cx - r * 1.2)} ${f2(cy)} Q ${f2(cx)} ${f2(cy - r * 1.3)} ${f2(cx + r * 1.2)} ${f2(cy)}"
+      stroke="#2a1430" stroke-width="${f2(Math.max(2, r * 0.35))}" fill="none" stroke-linecap="round"/>`;
+  }
+  g += `<ellipse cx="${f2(cx)}" cy="${f2(cy)}" rx="${f2(r * 1.05 * sc)}" ry="${f2(r * sc)}" fill="#fdfbff"/>`;
+  const pr = state === 'shock' ? r * 0.38 : r * 0.5;
+  g += `<circle cx="${f2(cx + look * r * 0.45)}" cy="${f2(cy)}" r="${f2(pr)}" fill="#20122e"/>`;
+  g += `<circle cx="${f2(cx + look * r * 0.45 - pr * 0.35)}" cy="${f2(cy - pr * 0.35)}" r="${f2(pr * 0.3)}" fill="#fff" opacity="0.85"/>`;
+  if ((state === 'tired' || state === 'sly') && bodyCol) {
+    const lidH = state === 'tired' ? 0.62 : 0.5;
+    g += `<path d="M ${f2(cx - r * 1.2)} ${f2(cy - r * 1.1)} L ${f2(cx + r * 1.2)} ${f2(cy - r * 1.1)}
+      L ${f2(cx + r * 1.2)} ${f2(cy - r + r * 2 * lidH - r)} L ${f2(cx - r * 1.2)} ${f2(cy - r * 1.1 + r * 2 * lidH)} Z" fill="${bodyCol}"/>`;
+  }
+  return g;
+}
+function mouth(state, cx, cy, w, col) {
+  if (state === 'shock') {
+    return `<ellipse cx="${f2(cx)}" cy="${f2(cy)}" rx="${f2(w * 0.5)}" ry="${f2(w * 0.62)}" fill="#2a1430"/>`;
+  }
+  if (state === 'happy' || state === 'grin') {
+    return `<path d="M ${f2(cx - w)} ${f2(cy - w * 0.25)} Q ${f2(cx)} ${f2(cy + w * 0.8)} ${f2(cx + w)} ${f2(cy - w * 0.25)}"
+      stroke="#2a1430" stroke-width="${f2(w * 0.3)}" fill="none" stroke-linecap="round"/>`;
+  }
+  if (state === 'worried' || state === 'tired') {
+    return `<path d="M ${f2(cx - w * 0.7)} ${f2(cy + w * 0.2)} Q ${f2(cx)} ${f2(cy - w * 0.3)} ${f2(cx + w * 0.7)} ${f2(cy + w * 0.2)}"
+      stroke="${col}" stroke-width="${f2(w * 0.24)}" fill="none" stroke-linecap="round"/>`;
+  }
+  return `<path d="M ${f2(cx - w * 0.6)} ${f2(cy)} L ${f2(cx + w * 0.6)} ${f2(cy)}"
+    stroke="#2a1430" stroke-width="${f2(w * 0.22)}" fill="none" stroke-linecap="round"/>`;
+}
+
+/* ---------- Kosmoland set pieces (world coords) ---------- */
+
+function sky(t) {
+  let g = `<rect x="-2600" y="-3200" width="9000" height="6000" fill="url(#skyG)"/>`;
+  const rnd = mulberry32(99);
+  for (let k = 0; k < 150; k++) {
+    const x = -2000 + rnd() * 8000;
+    const y = -3000 + rnd() * 4100;
+    const r = 1.2 + rnd() * 2.6;
+    const tw = 0.35 + 0.65 * Math.abs(Math.sin(t * (0.7 + rnd() * 2) + k));
+    g += `<circle cx="${f2(x)}" cy="${f2(y)}" r="${f2(r)}" fill="#fff" opacity="${f2(0.25 + tw * 0.55)}"/>`;
+  }
+  // big ringed planet low on the horizon
+  g += `<g opacity="0.5"><circle cx="3180" cy="620" r="150" fill="#3a2b63"/>
+    <ellipse cx="3180" cy="620" rx="250" ry="48" fill="none" stroke="#5c4792" stroke-width="12" opacity="0.8"/></g>`;
+  return g;
+}
+
+function ferrisWheel(t, spin) {
+  const cx = 620, cy = 980, R = 330;
+  const a0 = spin * 360;
+  let g = `<g>`;
+  g += `<path d="M ${cx - 150} ${GROUND} L ${cx - 16} ${cy} L ${cx + 16} ${cy} L ${cx + 150} ${GROUND} Z" fill="${C.rust}"/>`;
+  g += `<g transform="rotate(${f2(a0)},${cx},${cy})">`;
+  g += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="none" stroke="${C.rust2}" stroke-width="14"/>`;
+  g += `<circle cx="${cx}" cy="${cy}" r="${R * 0.62}" fill="none" stroke="${C.rust}" stroke-width="9"/>`;
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2;
+    const ex = cx + Math.cos(a) * R, ey = cy + Math.sin(a) * R;
+    g += `<path d="M ${cx} ${cy} L ${f2(ex)} ${f2(ey)}" stroke="${C.rust2}" stroke-width="8"/>`;
+    // gondolas shaped like satellite dishes
+    g += `<g transform="translate(${f2(ex)},${f2(ey)}) rotate(${f2(-a0)})">
+      <path d="M -46 0 A 46 46 0 0 0 46 0 Z" fill="#53698a"/>
+      <path d="M -46 0 A 46 20 0 0 1 46 0 Z" fill="#7b93b5"/>
+      <circle cx="0" cy="-16" r="7" fill="#c9d9e8"/></g>`;
+  }
+  g += `</g><circle cx="${cx}" cy="${cy}" r="26" fill="#9fb3c8"/>`;
+  // vines
+  g += `<path d="M ${cx - 150} ${GROUND} C ${cx - 120} ${cy + 180} ${cx - 60} ${cy + 240} ${cx - 10} ${GROUND}"
+    stroke="${C.grass2}" stroke-width="11" fill="none" opacity="0.85"/>`;
+  g += `</g>`;
+  return g;
+}
+
+function rocket(x, scale, tilt, seed) {
+  const h = 520 * scale, w = 120 * scale;
+  let g = `<g transform="translate(${x},${GROUND}) rotate(${tilt}) scale(${scale})">`;
+  g += `<path d="M 0 0 L -${120} 0 L -${110} -${430} Q 0 -${640} ${110} -${430} L ${120} 0 Z" fill="${C.rust}"/>`;
+  g += `<path d="M -${70} -${120} L -${60} -${400} Q 0 -${560} ${60} -${400} L ${70} -${120} Z" fill="${C.rust2}" opacity="0.75"/>`;
+  g += `<circle cx="0" cy="-330" r="48" fill="#2b3a52"/><circle cx="-14" cy="-344" r="16" fill="#7fa0c0" opacity="0.7"/>`;
+  g += `<path d="M -${120} 0 L -${210} 40 L -${140} -${150} Z" fill="${C.rust2}"/>`;
+  g += `<path d="M ${120} 0 L ${210} 40 L ${140} -${150} Z" fill="${C.rust2}"/>`;
+  // overgrowth
+  const rnd = mulberry32(seed);
+  for (let k = 0; k < 9; k++) {
+    const yy = -40 - rnd() * 360, xx = (rnd() - 0.5) * 210;
+    g += `<path d="M ${f2(xx)} ${f2(yy)} q ${f2(28 + rnd() * 30)} ${f2(-20 - rnd() * 40)} ${f2(8)} ${f2(-70 - rnd() * 60)}"
+      stroke="${C.grass2}" stroke-width="9" fill="none" opacity="0.8"/>`;
+  }
+  g += `</g>`;
+  return g;
+}
+
+/* flickering neon signs — abstract glyph blocks, deliberately unreadable */
+function neonSign(x, y, w, on, hue) {
+  const op = on ? 1 : 0.12;
+  let g = `<g opacity="${f2(op)}">`;
+  g += `<rect x="${f2(x)}" y="${f2(y)}" width="${f2(w)}" height="${f2(w * 0.34)}" rx="14" fill="#140f24" stroke="${hue}" stroke-width="5" opacity="0.9"/>`;
+  const rnd = mulberry32(Math.round(x));
+  let px = x + 18;
+  while (px < x + w - 26) {
+    const bw = 10 + rnd() * 16;
+    const bh = w * 0.34 * (0.3 + rnd() * 0.42);
+    g += `<rect x="${f2(px)}" y="${f2(y + w * 0.34 * 0.3)}" width="${f2(bw)}" height="${f2(bh)}" rx="4" fill="${hue}" opacity="0.85"/>`;
+    px += bw + 10 + rnd() * 10;
+  }
+  g += `<rect x="${f2(x - 6)}" y="${f2(y - 6)}" width="${f2(w + 12)}" height="${f2(w * 0.34 + 12)}" rx="18" fill="${hue}" opacity="${f2(0.1 * (on ? 1 : 0))}"/>`;
+  g += `<path d="M ${f2(x + w * 0.5)} ${f2(y + w * 0.34)} L ${f2(x + w * 0.5)} ${f2(y + w * 0.34 + 90)}" stroke="${C.rust}" stroke-width="9"/>`;
+  g += `</g>`;
+  return g;
+}
+
+function ground() {
+  let g = `<rect x="-2600" y="${GROUND}" width="9000" height="2200" fill="#1d3b2f"/>`;
+  g += `<path d="M -2600 ${GROUND} H 6400 V ${GROUND + 70} H -2600 Z" fill="${C.grass}"/>`;
+  // grass tufts across the park
+  const rnd = mulberry32(4242);
+  let d = '';
+  for (let k = 0; k < 420; k++) {
+    const x = -500 + rnd() * 4800;
+    const y = GROUND + rnd() * 320;
+    const h = 26 + rnd() * 46;
+    d += `M ${f2(x)} ${f2(y)} q ${f2(8 - rnd() * 16)} ${f2(-h * 0.6)} ${f2(4 - rnd() * 8)} ${f2(-h)} `;
+  }
+  g += `<path d="${d}" stroke="${C.grass2}" stroke-width="7" fill="none" opacity="0.75" stroke-linecap="round"/>`;
+  // cracked old asphalt path
+  g += `<path d="M -400 ${GROUND + 210} Q 1500 ${GROUND + 120} 3900 ${GROUND + 230}" stroke="#2a2a3c" stroke-width="120" fill="none" opacity="0.6"/>`;
+  return g;
+}
+
+/* crashed capsule; hatch opens with `hatch` (0 closed .. 1 open) */
+function capsule(hatch, consoleOn, steam, t) {
+  const x = 2450, y = GROUND;
+  let g = `<g transform="translate(${x},${y})">`;
+  g += shadow(0, 10, 260, 0.4);
+  // dirt mound / crash furrow
+  g += `<path d="M -330 0 Q -120 -54 60 -16 Q 240 10 360 0 Z" fill="#23412f"/>`;
+  g += `<g transform="rotate(-8)">`;
+  g += `<ellipse cx="0" cy="-130" rx="235" ry="175" fill="#4a4568"/>`;
+  g += `<ellipse cx="-40" cy="-165" rx="165" ry="120" fill="#5d5880" opacity="0.75"/>`;
+  g += `<path d="M -235 -130 A 235 175 0 0 0 235 -130 Z" fill="#332e4e"/>`;
+  // landing legs
+  g += `<path d="M -150 -40 L -230 30" stroke="#6f6a92" stroke-width="20" stroke-linecap="round"/>`;
+  g += `<path d="M 150 -40 L 236 26" stroke="#6f6a92" stroke-width="20" stroke-linecap="round"/>`;
+  // hatch opening (dark interior) + sliding door
+  g += `<ellipse cx="25" cy="-150" rx="112" ry="112" fill="#0b0817"/>`;
+  if (consoleOn > 0) {
+    g += `<ellipse cx="25" cy="-150" rx="106" ry="106" fill="${C.neon}" opacity="${f2(0.22 * consoleOn)}"/>`;
+    // console strip with blinking lamps
+    for (let k = 0; k < 5; k++) {
+      const on = flick(Math.floor(t * 5) + k, 3 + k) > 0.4 ? 1 : 0.25;
+      g += `<circle cx="${f2(-45 + k * 36)}" cy="-96" r="9" fill="${k % 2 ? C.bixS : C.neon}" opacity="${f2(on * consoleOn)}"/>`;
+    }
+    g += `<rect x="-62" y="-126" width="176" height="14" rx="7" fill="#17304a" opacity="${f2(consoleOn)}"/>`;
+  }
+  const slide = (1 - hatch);
+  g += `<g transform="translate(${f2(-slide * -4)},0)">`;
+  g += `<path d="M 25 -262 A 112 112 0 0 0 25 -38 L ${f2(25 - 112 * slide)} -38 A ${f2(112 * slide)} 112 0 0 1 ${f2(25 - 112 * slide)} -262 Z" fill="#6f6a92" opacity="${slide > 0.02 ? 1 : 0}"/>`;
+  g += `</g>`;
+  g += `<ellipse cx="25" cy="-150" rx="112" ry="112" fill="none" stroke="#8d88b0" stroke-width="12"/>`;
+  g += `</g>`;
+  if (steam > 0) {
+    for (let k = 0; k < 7; k++) {
+      const u = ((t * 0.5 + k * 0.17) % 1);
+      g += `<circle cx="${f2(120 + k * 22 + u * 90)}" cy="${f2(-150 - u * 230)}" r="${f2(22 + u * 58)}"
+        fill="#cbd6ee" opacity="${f2(0.3 * (1 - u) * steam)}"/>`;
+    }
+  }
+  g += `</g>`;
+  return g;
+}
+
+/* the rusty kids' trampoline — faded sign plate, no readable letters */
+function trampoline(squash, t) {
+  const x = 1500, y = GROUND;
+  const dip = squash * 54;
+  let g = `<g transform="translate(${x},${y})">`;
+  g += shadow(0, 4, 250, 0.4);
+  for (const lx of [-190, -70, 70, 190]) {
+    g += `<path d="M ${lx} -70 L ${f2(lx * 1.16)} 6" stroke="${C.rust}" stroke-width="18" stroke-linecap="round"/>`;
+  }
+  g += `<ellipse cx="0" cy="-78" rx="236" ry="60" fill="#3b3550"/>`;
+  g += `<path d="M -236 -84 Q 0 ${f2(-84 + 34 + dip)} 236 -84 Q 0 ${f2(-150 + dip * 0.2)} -236 -84 Z" fill="#241f38"/>`;
+  g += `<path d="M -228 -86 Q 0 ${f2(-86 + 30 + dip)} 228 -86" stroke="#4b4468" stroke-width="10" fill="none"/>`;
+  g += `<ellipse cx="0" cy="-86" rx="236" ry="58" fill="none" stroke="${C.rust2}" stroke-width="16"/>`;
+  // faded sign plate on a post: abstract worn marks, intentionally illegible
+  g += `<g transform="translate(-300,-250)">`;
+  g += `<path d="M 42 118 L 42 250" stroke="${C.rust}" stroke-width="13"/>`;
+  g += `<rect x="-42" y="30" width="168" height="78" rx="10" fill="#4e4330" opacity="0.9" stroke="${C.rust2}" stroke-width="6"/>`;
+  const rnd = mulberry32(5150);
+  for (let k = 0; k < 6; k++) {
+    const bx = -26 + k * 26, bh = 16 + rnd() * 26;
+    g += `<rect x="${f2(bx)}" y="${f2(84 - bh)}" width="${f2(9 + rnd() * 7)}" height="${f2(bh)}" rx="3" fill="#cdbb92" opacity="${f2(0.1 + rnd() * 0.3)}"/>`;
+  }
+  g += `</g>`;
+  g += `</g>`;
+  return g;
+}
+
+/* ---------- full park plate (shared background for wide beats) ---------- */
+function park(t, o) {
+  o = o || {};
+  let g = sky(t);
+  g += ferrisWheel(t, o.wheelSpin || 0);
+  g += rocket(1180, 0.8, -7, 11);
+  g += rocket(3480, 1.05, 6, 22);
+  g += rocket(150, 0.55, -13, 33);
+  const slot = Math.floor(t * 6);
+  g += neonSign(930, 560, 300, flick(slot, 1) > 0.25, C.bixS);
+  g += neonSign(1900, 430, 360, flick(slot, 2) > 0.18, C.neon);
+  g += neonSign(2900, 640, 260, flick(slot, 3) > 0.3, C.bix);
+  g += ground();
+  g += trampoline(o.trampSquash || 0, t);
+  g += capsule(o.hatch || 0, o.consoleOn || 0, o.steam || 0, t);
+  return g;
+}
+
+/* ---------- beat timeline ---------- */
+/* Each beat: start, end, cam(u, t) -> {cx, cy, w, rot}, draw(u, t) -> svg string */
+
+const BEATS = [];
+function beat(start, end, cam, draw) { BEATS.push({ start, end, cam, draw }); }
+
+/* idle bounce for Zyp: never fully still */
+const idle = (t, amp) => Math.abs(Math.sin(t * 5.5)) * (amp == null ? 8 : amp);
+
+/* B1 0:00-0:05 — drone wide, slow pan reveals the overgrown park */
+beat(0, 5, (u) => ({ cx: lerp(760, 2080, ease(u)), cy: lerp(880, 1010, ease(u)), w: lerp(3100, 2750, u), rot: lerp(-1.2, 0.4, u) }),
+  (u, t) => park(t, { steam: 1 - u * 0.4 }));
+
+/* B2 0:05-0:10 — medium on the capsule, hatch opens FFSHH, three heads peek out */
+beat(5, 10, (u) => ({ cx: lerp(2500, 2460, ease(u)), cy: lerp(1240, 1215, ease(u)), w: lerp(1500, 1180, ease(u)), rot: 0 }),
+  (u, t) => {
+    const hatch = ease((u - 0.18) / 0.32);
+    let g = park(t, { hatch, steam: 1 - ease(u / 0.5) });
+    const peek = ease((u - 0.5) / 0.4);
+    if (peek > 0) {
+      g += `<g clip-path="url(#hatchClip)">`;
+      g += zyp({ x: 2440, y: 1300 - 108 * peek + idle(t, 5), s: 0.9, shadow: false, eyes: 'wide', look: 0.6, spiral: 0.3 });
+      g += dolm({ x: 2360, y: 1360 - 70 * peek, s: 0.72, shadow: false, eyes: 'tired' });
+      g += bix({ x: 2540, y: 1350 - 82 * peek, s: 0.76, shadow: false, eyes: 'sly', ear: 1 });
+      g += `</g>`;
+    }
+    return g;
+  });
+
+/* B3 0:10-0:18 — low angle on Zyp in front of the trampoline, camera pans with him */
+beat(10, 18, (u) => ({ cx: lerp(1980, 1560, ease(u)), cy: lerp(1330, 1310, u), w: lerp(1150, 1020, u), rot: 0 }),
+  (u, t) => {
+    const walk = ease(u / 0.62);
+    const zx = lerp(2180, 1640, walk);
+    const hop = idle(t, 26) * (walk < 1 ? 1 : 0.45);
+    let g = park(t, { hatch: 1 });
+    g += zyp({
+      x: zx, y: GROUND - 58 - hop, s: 1.15, sq: 1 + 0.05 * Math.sin(t * 11),
+      eyes: u > 0.66 ? 'wide' : 'normal', look: -0.7, spiral: lerp(0.15, 0.75, ease((u - 0.6) / 0.4)),
+      arms: 20 + hop * 0.6, gy: GROUND - 10
+    });
+    // sniff/poke lines when he reaches the mat
+    if (u > 0.68) {
+      const p = ease((u - 0.68) / 0.3);
+      for (let k = 0; k < 3; k++) {
+        g += `<path d="M ${f2(1560 - k * 10)} ${f2(GROUND - 150 - k * 26)} q 30 ${f2(-18 - k * 6)} 62 ${f2(-6 - k * 4)}"
+          stroke="${C.neon}" stroke-width="5" fill="none" opacity="${f2(0.55 * p)}"/>`;
+      }
+    }
+    return g;
+  });
+
+/* B4 0:18-0:25 — close-up: Dolm's dish antenna spinning + worried face, Zyp soft in bg */
+beat(18, 25, (u) => ({ cx: 2075, cy: lerp(1325, 1350, ease(u)), w: lerp(820, 730, u), rot: 0 }),
+  (u, t) => {
+    let g = park(t, { hatch: 1 });
+    g += `<g filter="url(#soft)" opacity="0.9">`;
+    g += zyp({ x: 1800, y: GROUND - 62 - idle(t, 14), s: 1.0, eyes: 'normal', look: 0.8, spiral: 0.7, gy: GROUND - 10 });
+    g += `</g>`;
+    g += dolm({
+      x: 2075, y: GROUND - 62, s: 1.5, spin: t * 520, ping: (t * 1.6) % 1,
+      eyes: u > 0.3 ? 'wide' : 'tired', look: -0.6, arms: 34 + Math.sin(t * 9) * 22, gy: GROUND - 8
+    });
+    return g;
+  });
+
+/* B5 0:25-0:32 — FLOINNG: whip-pan straight up following Zyp, bird's eye at the top */
+beat(25, 32, (u) => {
+  const fly = ease(clamp01((u - 0.12) / 0.42));
+  return { cx: lerp(1520, 1505, u), cy: lerp(GROUND - 120, 240, fly) - (u > 0.62 ? (u - 0.62) * 500 : 0), w: lerp(1000, 1500, fly), rot: lerp(0, 2.5, fly) };
+},
+  (u, t) => {
+    const launch = clamp01((u - 0.1) / 0.45);
+    const zy = GROUND - 120 - easeOut(launch) * 1180;
+    let g = park(t, { hatch: 1, trampSquash: u < 0.12 ? ease(u / 0.12) : Math.max(0, 0.5 - (u - 0.12) * 4) });
+    g += zyp({
+      x: 1512 + Math.sin(launch * 7) * 24, y: zy, s: 1.2,
+      sq: 1 + 0.4 * (1 - launch), rot: launch * 220, eyes: 'shock', flail: t * 2.2, spiral: 1,
+      shadow: launch < 0.8, gy: GROUND - 10, shA: 0.3 * (1 - launch)
+    });
+    // speed lines
+    if (launch > 0.05 && launch < 0.95) {
+      for (let k = 0; k < 6; k++) {
+        g += `<path d="M ${f2(1400 + k * 46)} ${f2(zy + 150 + k * 40)} L ${f2(1400 + k * 46)} ${f2(zy + 420 + k * 40)}"
+          stroke="#fff" stroke-width="6" opacity="0.35" stroke-linecap="round"/>`;
+      }
+    }
+    return g;
+  });
+
+/* B6 0:32-0:40 — medium: comic pause, then Zyp grins and waves the others in */
+beat(32, 40, (u) => ({ cx: lerp(1640, 1700, ease(u)), cy: 1290, w: lerp(1260, 1340, u), rot: 0 }),
+  (u, t) => {
+    // land back-first, small rebound, then beat of silence, then victory dance
+    const land = clamp01(u / 0.14);
+    const reb = Math.max(0, Math.sin(clamp01((u - 0.14) / 0.2) * Math.PI)) * 190;
+    const dance = u > 0.52;
+    const dy = dance ? idle(t, 42) : reb;
+    const sq = u < 0.1 ? 0.72 + 0.28 * (land) : 1 + (dance ? 0.09 * Math.sin(t * 13) : 0);
+    let g = park(t, { hatch: 1, trampSquash: Math.max(0, 0.9 - u * 5) });
+    g += zyp({
+      x: 1520, y: GROUND - 56 - dy, s: 1.2, sq, rot: dance ? Math.sin(t * 8) * 12 : lerp(150, 0, ease(u / 0.3)),
+      eyes: dance ? 'happy' : (u < 0.4 ? 'shock' : 'wide'), look: 0.4, spiral: dance ? 1 : 0.5,
+      arms: dance ? 50 + Math.sin(t * 14) * 26 : 10, flail: dance ? t * 1.4 : 0, gy: GROUND - 10
+    });
+    g += dolm({ x: 2080, y: GROUND - 64, s: 0.92, spin: t * 180, eyes: 'tired', armsCrossed: true, look: -0.8, gy: GROUND - 10 });
+    g += bix({ x: 2200, y: GROUND - 54 - idle(t, 16), s: 0.9, eyes: 'sly', ear: 1, look: -0.9, gy: GROUND - 10 });
+    return g;
+  });
+
+/* B7 0:40-0:50 — two-shot: Bix bouncing in the foreground, Dolm refusing behind. Handheld. */
+beat(40, 50, (u, t) => ({
+  cx: lerp(1560, 1660, u) + Math.sin(t * 13.1) * 11, cy: 1250 + Math.cos(t * 9.7) * 9,
+  w: lerp(1340, 1280, u), rot: Math.sin(t * 7.3) * 0.8
+}),
+  (u, t) => {
+    const b = Math.abs(Math.sin(t * 3.1));
+    const by = GROUND - 90 - b * 430;
+    const contact = b < 0.12;
+    let g = park(t, { hatch: 1, trampSquash: contact ? 1 : 0 });
+    g += dolm({
+      x: 2130, y: GROUND - 64, s: 1.0, spin: t * 300, ping: (t * 1.2) % 1,
+      eyes: 'tired', armsCrossed: u > 0.45, arms: 30, look: -0.7, gy: GROUND - 10
+    });
+    g += bix({
+      x: 1500, y: by, s: 1.3, sq: contact ? 0.76 : 1 + b * 0.22, rot: Math.sin(t * 3.1) * 16,
+      eyes: 'happy', ear: -1, arms: 52, flail: t * 1.8, gy: GROUND - 10, shA: 0.34 * (1 - b)
+    });
+    g += zyp({ x: 1880, y: GROUND - 56 - idle(t, 30), s: 0.95, eyes: 'happy', spiral: 1, arms: 44, gy: GROUND - 10 });
+    return g;
+  });
+
+/* B8 0:50-0:55 — close-up on Dolm's feet losing balance, snap up as he topples */
+beat(50, 55, (u) => {
+  const tilt = ease(clamp01((u - 0.45) / 0.3));
+  return { cx: lerp(2090, 1860, tilt), cy: lerp(GROUND + 20, GROUND - 240, tilt), w: lerp(620, 1150, tilt), rot: lerp(0, -7, tilt) };
+},
+  (u, t) => {
+    const fall = ease(clamp01((u - 0.45) / 0.45));
+    const shakeY = Math.sin(t * 26) * 7 * (1 - fall);
+    let g = park(t, { hatch: 1, trampSquash: Math.abs(Math.sin(t * 3.4)) < 0.2 ? 1 : 0.2 });
+    g += dolm({
+      x: lerp(2130, 1700, fall), y: GROUND - 64 + shakeY - Math.sin(fall * Math.PI) * 120,
+      s: 1.25, rot: lerp(0, -96, fall), spin: t * 420, ping: (t * 2) % 1,
+      eyes: fall > 0.2 ? 'shock' : 'tired', arms: lerp(16, 64, fall), gy: GROUND - 10
+    });
+    return g;
+  });
+
+/* B9 0:55-1:10 — wide: all three in sync, higher and higher; camera bounces with them */
+beat(55, 70, (u, t) => {
+  const bob = Math.abs(Math.sin(t * 3.4)) * 54;
+  return { cx: 1500, cy: lerp(1180, 980, ease(u)) - bob, w: lerp(1500, 2050, ease(u)), rot: Math.sin(t * 3.4) * 1.1 };
+},
+  (u, t) => {
+    const amp = lerp(260, 700, ease(u));
+    const freq = lerp(3.0, 4.2, u);
+    const ph = (o) => Math.abs(Math.sin(t * freq + o));
+    const b1 = ph(0), b2 = ph(0.15), b3 = ph(0.3);
+    const squash = (b) => (b < 0.12 ? 0.78 : 1 + b * 0.2);
+    let g = park(t, { hatch: 1, trampSquash: b1 < 0.14 ? 1 : 0 });
+    g += dolm({ x: 1270, y: GROUND - 70 - b3 * amp * 0.9, s: 1.12, sq: squash(b3), rot: Math.sin(t * freq) * 10, spin: t * 600, eyes: 'shock', arms: 60, gy: GROUND - 10, shA: 0.3 * (1 - b3) });
+    g += zyp({ x: 1520, y: GROUND - 56 - b1 * amp, s: 1.12, sq: squash(b1), rot: -Math.sin(t * freq) * 14, eyes: 'happy', spiral: 1, arms: 54, flail: t * 1.6, gy: GROUND - 10, shA: 0.3 * (1 - b1) });
+    g += bix({ x: 1760, y: GROUND - 64 - b2 * amp * 0.95, s: 1.16, sq: squash(b2), rot: Math.sin(t * freq + 1) * 18, eyes: 'happy', ear: -1, arms: 58, flail: t * 1.9, gy: GROUND - 10, shA: 0.3 * (1 - b2) });
+    return g;
+  });
+
+/* B10 1:10-1:20 — diagonal composition: Bix spins mid-air, camera rotates with him,
+   then lands askew and launches the others sideways */
+beat(70, 80, (u, t) => {
+  const spin = ease(clamp01((u - 0.05) / 0.45));
+  return { cx: lerp(1560, 1660, u), cy: lerp(900, 1150, ease(u)), w: lerp(1800, 2100, u), rot: lerp(-10, 12, spin) + Math.sin(t * 11) * 1.2 };
+},
+  (u, t) => {
+    const up = Math.sin(clamp01(u / 0.55) * Math.PI);
+    const hit = clamp01((u - 0.56) / 0.44);
+    let g = park(t, { hatch: 1, trampSquash: u > 0.52 && u < 0.62 ? 1 : 0 });
+    // Bix spinning showoff
+    g += bix({
+      x: 1560 + Math.sin(u * 3) * 90, y: GROUND - 90 - up * 820, s: 1.2,
+      rot: u * 1700, eyes: 'happy', ear: -1, arms: 60, flail: t * 2.4, gy: GROUND - 10, shA: 0.3 * (1 - up)
+    });
+    // Zyp and Dolm punted to opposite sides
+    g += zyp({
+      x: lerp(1500, 420, easeOut(hit)), y: GROUND - 60 - Math.sin(hit * Math.PI) * 560 - hit * 120,
+      s: 1.05, rot: hit * -520, eyes: 'shock', flail: t * 2.6, spiral: 1, arms: 60, shadow: hit < 0.2, gy: GROUND - 10
+    });
+    g += dolm({
+      x: lerp(1660, 2760, easeOut(hit)), y: GROUND - 70 - Math.sin(hit * Math.PI) * 620 - hit * 150,
+      s: 1.08, rot: hit * 440, eyes: 'shock', spin: t * 900, arms: 66, shadow: hit < 0.2, gy: GROUND - 10
+    });
+    // motion-blur streaks behind Bix
+    if (up > 0.25) {
+      for (let k = 1; k <= 4; k++) {
+        g += `<circle cx="${f2(1560 + Math.sin((u - k * 0.012) * 3) * 90)}" cy="${f2(GROUND - 90 - Math.sin(clamp01((u - k * 0.012) / 0.55) * Math.PI) * 820)}"
+          r="${f2(52)}" fill="${C.bix}" opacity="${f2(0.18 - k * 0.035)}"/>`;
+      }
+    }
+    return g;
+  });
+
+/* B11 1:20-1:30 — wide total: they bounce across the park into the ferris wheel,
+   which starts to turn (KRRRIK). Camera pulls back. */
+beat(80, 90, (u, t) => ({ cx: lerp(1500, 1180, ease(u)), cy: lerp(1010, 880, ease(u)), w: lerp(2100, 3400, ease(u)), rot: 0 }),
+  (u, t) => {
+    const wheel = clamp01((u - 0.3) / 0.7);
+    let g = park(t, { hatch: 1, wheelSpin: easeIn(wheel) * 0.42 });
+    const hop = (x0, x1, off) => {
+      const p = clamp01((u - off) / 0.8);
+      const bb = Math.abs(Math.sin(p * 9));
+      return { x: lerp(x0, x1, easeOut(p)), y: GROUND - 60 - bb * 340 };
+    };
+    const a = hop(420, 760, 0.0), b = hop(2760, 980, 0.06), c = hop(1560, 640, 0.12);
+    g += zyp({ x: a.x, y: a.y, s: 1.0, rot: Math.sin(u * 20) * 24, eyes: 'shock', spiral: 1, flail: t * 2, arms: 52, gy: GROUND - 10 });
+    g += dolm({ x: b.x, y: b.y - 10, s: 1.05, rot: -Math.sin(u * 18) * 20, eyes: 'shock', spin: t * 700, arms: 60, gy: GROUND - 10 });
+    g += bix({ x: c.x, y: c.y, s: 1.0, rot: Math.sin(u * 22) * 30, eyes: 'wide', ear: -1, flail: t * 2.2, arms: 54, gy: GROUND - 10 });
+    // creak marks on the wheel hub
+    if (wheel > 0.1) {
+      for (let k = 0; k < 3; k++) {
+        const uu = (t * 1.3 + k * 0.33) % 1;
+        g += `<circle cx="620" cy="980" r="${f2(340 + uu * 90)}" fill="none" stroke="${C.rust2}" stroke-width="5" opacity="${f2(0.4 * (1 - uu))}"/>`;
+      }
+    }
+    return g;
+  });
+
+/* B12 1:30-1:40 — slow-motion arc: the wheel catapults all three back toward the capsule */
+beat(90, 100, (u) => {
+  const p = ease(u);
+  return { cx: lerp(900, 2350, p), cy: lerp(620, 1120, p), w: lerp(2500, 1700, p), rot: lerp(3, -2, p) };
+},
+  (u, t) => {
+    let g = park(t, { hatch: 1, wheelSpin: 0.42 + u * 0.5 });
+    // arc from the wheel (620,700) to the capsule hatch (2450,1350)
+    const arc = (off) => {
+      const p = clamp01((u - off) / 0.86);
+      const x = lerp(700, 2430, p);
+      const y = lerp(700, GROUND - 170, p) - Math.sin(p * Math.PI) * 420;
+      return { x, y, p };
+    };
+    const A = arc(0.0), B = arc(0.05), D = arc(0.1);
+    // slow-mo trails
+    for (const [pt, col] of [[A, C.zyp], [B, C.bix], [D, C.dolm]]) {
+      for (let k = 1; k <= 5; k++) {
+        const pp = clamp01(pt.p - k * 0.03);
+        const tx = lerp(700, 2430, pp), ty = lerp(700, GROUND - 170, pp) - Math.sin(pp * Math.PI) * 420;
+        g += `<circle cx="${f2(tx)}" cy="${f2(ty)}" r="${f2(40 - k * 4)}" fill="${col}" opacity="${f2(0.16 - k * 0.025)}"/>`;
+      }
+    }
+    g += zyp({ x: A.x, y: A.y, s: 1.0, rot: Math.sin(u * 5) * 60, eyes: 'shock', flail: t * 0.8, spiral: 1, arms: 58, shadow: false });
+    g += bix({ x: B.x, y: B.y - 90, s: 1.05, rot: -Math.sin(u * 4.4) * 70, eyes: 'shock', ear: 0, flail: t * 0.9, arms: 56, shadow: false });
+    g += dolm({ x: D.x, y: D.y - 180, s: 1.1, rot: Math.sin(u * 4) * 50, eyes: 'shock', spin: t * 120, arms: 62, shadow: false });
+    return g;
+  });
+
+/* B13 1:40-1:48 — at the hatch: BUM-BUM-BUM, stacked, console wakes up BEEP-BOOP */
+beat(100, 108, (u) => ({ cx: 2430, cy: lerp(1230, 1255, ease(u)), w: lerp(1180, 980, ease(u)), rot: 0 }),
+  (u, t) => {
+    const land = (n) => ease(clamp01((u - n * 0.1) / 0.1));
+    const con = ease(clamp01((u - 0.45) / 0.3));
+    let g = park(t, { hatch: 1, consoleOn: con });
+    const base = GROUND - 150;
+    g += dolm({ x: 2410, y: base - lerp(-420, 0, land(0)), s: 0.95, sq: land(0) >= 1 ? 0.9 : 1.1, eyes: land(0) > 0.9 ? 'shock' : 'shock', spin: t * 200, arms: 20, shadow: false });
+    g += bix({ x: 2440, y: base - 96 - lerp(-520, 0, land(1)), s: 0.85, sq: land(1) >= 1 ? 0.92 : 1.12, eyes: 'shock', ear: 0, arms: 24, shadow: false });
+    g += zyp({ x: 2455, y: base - 176 - lerp(-640, 0, land(2)), s: 0.78, sq: land(2) >= 1 ? 0.95 : 1.15, eyes: 'shock', spiral: 0.8, arms: 26, shadow: false });
+    // impact puffs
+    for (let n = 0; n < 3; n++) {
+      const p = clamp01((u - n * 0.1 - 0.1) / 0.18);
+      if (p > 0 && p < 1) {
+        g += `<circle cx="2430" cy="${f2(base + 30)}" r="${f2(40 + p * 120)}" fill="none" stroke="#fff" stroke-width="6" opacity="${f2(0.5 * (1 - p))}"/>`;
+      }
+    }
+    if (con > 0.1) {
+      for (let k = 0; k < 4; k++) {
+        const uu = (t * 2 + k * 0.25) % 1;
+        g += `<circle cx="2455" cy="${f2(GROUND - 300)}" r="${f2(60 + uu * 150)}" fill="none" stroke="${C.neon}" stroke-width="4" opacity="${f2(0.3 * (1 - uu) * con)}"/>`;
+      }
+    }
+    return g;
+  });
+
+/* B14 1:48-1:55 — close-up: three shocked faces in a row, hatch slides shut VRRRR */
+beat(108, 115, (u) => ({ cx: 2455, cy: lerp(1215, 1205, u), w: lerp(820, 760, ease(u)), rot: 0 }),
+  (u, t) => {
+    const close = ease(clamp01((u - 0.2) / 0.75));
+    let g = park(t, { hatch: 1 - close * 0.86, consoleOn: 1 });
+    const freeze = u > 0.72;
+    const tt = freeze ? 108 + 7 * 0.72 : t;
+    g += dolm({ x: 2340, y: GROUND - 250, s: 0.8, eyes: 'shock', spin: tt * 60, arms: 18, shadow: false, look: 0.5 });
+    g += bix({ x: 2470, y: GROUND - 236, s: 0.72, eyes: 'shock', ear: 0, arms: 20, shadow: false, look: -0.3 });
+    g += zyp({ x: 2580, y: GROUND - 232, s: 0.66, eyes: 'shock', spiral: 0.9, arms: 22, shadow: false, look: -0.6 });
+    // sweat drops / oh-oh marks
+    if (u > 0.4) {
+      const p = ease((u - 0.4) / 0.4);
+      for (const [dx, dy] of [[2290, GROUND - 350], [2530, GROUND - 330]]) {
+        g += `<path d="M ${dx} ${f2(dy - p * 20)} q 14 18 0 32 q -14 -14 0 -32 Z" fill="#9fd9ff" opacity="${f2(0.8 * p)}"/>`;
+      }
+    }
+    return g;
+  });
+
+/* B15 1:55-2:00 — iris-out on the frozen faces, then the FUZZLINGS logo card + POP */
+beat(115, 120, (u) => ({ cx: 2455, cy: 1205, w: 760, rot: 0 }),
+  (u, t) => {
+    let g = park(115 + 0.7, { hatch: 0.14, consoleOn: 1 });
+    g += dolm({ x: 2340, y: GROUND - 250, s: 0.8, eyes: 'shock', spin: 40, arms: 18, shadow: false, look: 0.5 });
+    g += bix({ x: 2470, y: GROUND - 236, s: 0.72, eyes: 'shock', ear: 0, arms: 20, shadow: false, look: -0.3 });
+    g += zyp({ x: 2580, y: GROUND - 232, s: 0.66, eyes: 'shock', spiral: 0.9, arms: 22, shadow: false, look: -0.6 });
+    return g;
+  });
+
+/* ---------- overlays drawn in SCREEN space (not affected by camera) ---------- */
+function overlay(t) {
+  let g = '';
+  // iris-out during the last beat
+  if (t >= 115) {
+    const u = (t - 115) / 5;
+    const iris = clamp01((u - 0.02) / 0.42);          // circle closes
+    const R0 = 1250, r = lerp(R0, 0, ease(iris));
+    g += `<path d="M 0 0 H 1920 V 1080 H 0 Z M 960 540 m ${f2(-r)} 0 a ${f2(r)} ${f2(r)} 0 1 0 ${f2(2 * r)} 0 a ${f2(r)} ${f2(r)} 0 1 0 ${f2(-2 * r)} 0"
+      fill="#06040c" fill-rule="evenodd"/>`;
+    if (u > 0.46) {
+      const lu = ease((u - 0.46) / 0.22);
+      const pop = Math.sin(clamp01((u - 0.46) / 0.14) * Math.PI) * 0.1;
+      g += `<rect x="0" y="0" width="1920" height="1080" fill="#06040c" opacity="${f2(lu)}"/>`;
+      g += `<g transform="translate(960,540) scale(${f2((0.86 + 0.14 * lu + pop))})" opacity="${f2(lu)}">`;
+      g += `<circle cx="-640" cy="-32" r="46" fill="${C.zyp}"/>`;
+      g += `<circle cx="640" cy="-32" r="46" fill="${C.bix}"/>`;
+      g += `<circle cx="-640" cy="-44" r="9" fill="#fdfbff"/><circle cx="-640" cy="-24" r="9" fill="#fdfbff"/><circle cx="-640" cy="-4" r="9" fill="#fdfbff"/>`;
+      g += `<circle cx="625" cy="-40" r="9" fill="#fdfbff"/><circle cx="655" cy="-40" r="9" fill="#fdfbff"/>`;
+      g += `<text x="0" y="22" text-anchor="middle" font-family="Verdana, DejaVu Sans, sans-serif" font-size="150"
+        font-weight="bold" letter-spacing="14" fill="url(#logoG)">FUZZLINGS</text>`;
+      g += `<rect x="-330" y="72" width="660" height="7" rx="4" fill="${C.neon}" opacity="0.85"/>`;
+      g += `</g>`;
+    }
+  }
+  // soft vignette for filmic feel
+  g += `<rect x="0" y="0" width="1920" height="1080" fill="url(#vig)" opacity="0.55"/>`;
+  // film grain (deterministic per frame slot)
+  const slot = Math.floor(t * 12);
+  const rnd = mulberry32(slot + 7);
+  let gd = '';
+  for (let k = 0; k < 90; k++) {
+    gd += `M ${f2(rnd() * 1920)} ${f2(rnd() * 1080)} h 3 `;
+  }
+  g += `<path d="${gd}" stroke="#fff" stroke-width="3" opacity="0.025"/>`;
+  return g;
+}
+
+const DEFS = `
+<defs>
+  <linearGradient id="skyG" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#0d0a1c"/>
+    <stop offset="0.45" stop-color="#241a49"/>
+    <stop offset="0.78" stop-color="#4b2a5c"/>
+    <stop offset="1" stop-color="#7b3f55"/>
+  </linearGradient>
+  <linearGradient id="logoG" x1="0" y1="0" x2="1" y2="0">
+    <stop offset="0" stop-color="#ff8a2b"/>
+    <stop offset="0.55" stop-color="#ef4ba2"/>
+    <stop offset="1" stop-color="#4ee0c1"/>
+  </linearGradient>
+  <radialGradient id="vig" cx="0.5" cy="0.5" r="0.75">
+    <stop offset="0.55" stop-color="#000" stop-opacity="0"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0.85"/>
+  </radialGradient>
+  <filter id="soft"><feGaussianBlur stdDeviation="9"/></filter>
+  <clipPath id="hatchClip"><ellipse cx="2475" cy="1330" rx="118" ry="122"/></clipPath>
+</defs>`;
+
+/* ---------- frame driver ---------- */
+function beatAt(t) {
+  for (const b of BEATS) if (t >= b.start && t < b.end) return b;
+  return BEATS[BEATS.length - 1];
+}
+
+function renderFrame(i) {
+  const t = i / FPS;
+  const b = beatAt(t);
+  const u = clamp01((t - b.start) / (b.end - b.start));
+  const cam = b.cam(u, t);
+  const w = cam.w, h = w * 1080 / 1920;
+  const vb = `${f2(cam.cx - w / 2)} ${f2(cam.cy - h / 2)} ${f2(w)} ${f2(h)}`;
+  const stage = document.getElementById('stage');
+  stage.setAttribute('viewBox', vb);
+  const world = b.draw(u, t);
+  const rot = cam.rot || 0;
+  stage.innerHTML = DEFS
+    + `<g transform="rotate(${f2(rot)},${f2(cam.cx)},${f2(cam.cy)})">${world}</g>`
+    + `<g transform="translate(${f2(cam.cx - w / 2)},${f2(cam.cy - h / 2)}) scale(${f2(w / 1920)})">${overlay(t)}</g>`;
+  return BEATS.indexOf(b) + 1;
+}
+
+window.renderFrame = renderFrame;
+window.FZ = { FPS, DUR, BEATS, beatAt };
+renderFrame(0);
+</script>
+</body>
+</html>

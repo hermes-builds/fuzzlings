@@ -16,8 +16,9 @@
  *
  * Utan url-argument testas ./index.html lokalt.
  */
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { existsSync, statSync } from 'node:fs';
 
 const pkg = process.env.PLAYWRIGHT_PKG || 'playwright';
 const mod = await import(
@@ -30,6 +31,7 @@ if (!chromium) throw new Error(`Kunde inte hitta chromium i ${pkg}`);
 
 const REQUIRED_SECTIONS = [
   ['#hero', 'Hero'],
+  ['#animatic', 'Pilot-animatic'],
   ['#karaktarer', 'Karaktärer'],
   ['#manus', 'Pilotmanus'],
   ['#storyboard', 'Storyboard'],
@@ -180,9 +182,84 @@ try {
       }
     }
 
-    // A5: console
-    if (consoleErrors.length) {
-      failures.push(`[${width}px] console-fel: ${consoleErrors.join(' | ')}`);
+    // Animatic: spelaren måste finnas, vara mobilvänlig OCH faktiskt ha
+    // filer bakom sig. Resurserna hämtas med en separat request eftersom
+    // Chromium-bygget i CI inte alltid kan avkoda H.264 — en spelare som
+    // inte kan dekoda säger inget om att filen finns och levereras.
+    const player = page.locator('#animatic video');
+    if ((await player.count()) !== 1) {
+      failures.push(`[${width}px] #animatic saknar exakt ett <video>-element`);
+    } else {
+      for (const attr of ['controls', 'playsinline']) {
+        if ((await player.getAttribute(attr)) === null) {
+          failures.push(`[${width}px] <video> saknar attributet ${attr}`);
+        }
+      }
+      const poster = await player.getAttribute('poster');
+      if (!poster) failures.push(`[${width}px] <video> saknar poster`);
+      const src = await page.locator('#animatic video source').first().getAttribute('src');
+      if (!src || !src.endsWith('.mp4')) {
+        failures.push(`[${width}px] <source> pekar inte på en mp4 (fick "${src}")`);
+      }
+      for (const rel of [src, poster].filter(Boolean)) {
+        const url = new URL(rel, target).href;
+        if (url.startsWith('file:')) {
+          // Lokalt läge: page.request kan inte hämta file:-URL:er.
+          const p = fileURLToPath(url);
+          if (!existsSync(p)) {
+            failures.push(`[${width}px] ${rel} finns inte på disk (${p})`);
+          } else {
+            notes.push(`[${width}px] ${rel} finns lokalt (${statSync(p).size} B)`);
+          }
+          continue;
+        }
+        try {
+          const res = await page.request.get(url, { headers: { Range: 'bytes=0-1023' } });
+          if (![200, 206].includes(res.status())) {
+            failures.push(`[${width}px] ${rel} svarar HTTP ${res.status()}`);
+          } else {
+            const len = Number(res.headers()['content-length'] ?? 0);
+            notes.push(`[${width}px] ${rel} HTTP ${res.status()} (${len} B i första chunk)`);
+          }
+        } catch (err) {
+          failures.push(`[${width}px] ${rel} kunde inte hämtas: ${err.message}`);
+        }
+      }
+      // Om Chromium kan avkoda filen: längden måste matcha storyboardet.
+      const meta = await page.evaluate(async () => {
+        const v = document.querySelector('#animatic video');
+        v.preload = 'metadata';
+        await new Promise((res) => {
+          if (v.readyState >= 1) return res();
+          v.addEventListener('loadedmetadata', res, { once: true });
+          v.addEventListener('error', res, { once: true });
+          setTimeout(res, 6000);
+        });
+        return { readyState: v.readyState, duration: v.duration, w: v.videoWidth, h: v.videoHeight };
+      });
+      if (Number.isFinite(meta.duration) && meta.duration > 0) {
+        if (meta.duration < 115 || meta.duration > 125) {
+          failures.push(`[${width}px] videolängd ${meta.duration.toFixed(1)}s utanför 115-125s`);
+        } else {
+          notes.push(`[${width}px] video ${meta.duration.toFixed(1)}s ${meta.w}x${meta.h}`);
+        }
+      } else {
+        notes.push(`[${width}px] webbläsaren avkodade inte videon (readyState ${meta.readyState}) — längd kontrolleras med ffprobe i stället`);
+      }
+    }
+
+    // A5: console. Över file:// avbryter Chromium videons range-request
+    // (ERR_ABORTED) eftersom file: inte stödjer Range — det är ett artefakt
+    // av lokalt läge, inte ett sidfel. Över http räknas allt.
+    const isFile = target.startsWith('file:');
+    const realErrors = consoleErrors.filter(
+      (e) => !(isFile && e.includes('net::ERR_ABORTED') && e.includes('.mp4'))
+    );
+    if (realErrors.length !== consoleErrors.length) {
+      notes.push(`[${width}px] ignorerade ${consoleErrors.length - realErrors.length} file://-ERR_ABORTED för videon (kör mot http för skarp kontroll)`);
+    }
+    if (realErrors.length) {
+      failures.push(`[${width}px] console-fel: ${realErrors.join(' | ')}`);
     } else {
       notes.push(`[${width}px] 0 console-fel`);
     }
