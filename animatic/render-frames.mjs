@@ -25,6 +25,7 @@ function arg(name, dflt) {
 
 const out = String(arg('out', '/tmp/fz-frames'));
 const preview = Boolean(arg('preview', false));
+const refs = Boolean(arg('refs', false));
 const FPS = Number(arg('fps', 20));
 
 const mod = await import(PW);
@@ -48,6 +49,14 @@ if (preview) {
   // mid-beat still for every beat, plus the logo card
   meta.beats.forEach(([s, e], k) => shots.push({ i: Math.round(((s + e) / 2) * meta.fps), label: `beat${String(k + 1).padStart(2, '0')}` }));
   for (const sec of [118.6, 119.4, 116.2]) shots.push({ i: Math.round(sec * meta.fps), label: `logo_${sec}` });
+} else if (refs) {
+  // Only the mid-beat frames verify-video.py compares against, named exactly
+  // as in a full render -- lets `make verify` run on a fresh clone in seconds
+  // instead of waiting out all 2400 frames.
+  meta.beats.forEach(([s, e]) => {
+    const i = Math.round(((s + e) / 2) * meta.fps);
+    shots.push({ i, label: String(i).padStart(5, '0') });
+  });
 } else {
   const from = Number(arg('from', 0));
   const to = Number(arg('to', meta.dur));
