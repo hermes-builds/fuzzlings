@@ -187,6 +187,7 @@ try {
     // Chromium-bygget i CI inte alltid kan avkoda H.264 — en spelare som
     // inte kan dekoda säger inget om att filen finns och levereras.
     const player = page.locator('#animatic video');
+    let mediaRels = [];
     if ((await player.count()) !== 1) {
       failures.push(`[${width}px] #animatic saknar exakt ett <video>-element`);
     } else {
@@ -202,6 +203,7 @@ try {
         failures.push(`[${width}px] <source> pekar inte på en mp4 (fick "${src}")`);
       }
       for (const rel of [src, poster].filter(Boolean)) {
+        mediaRels.push(rel);
         const url = new URL(rel, target).href;
         if (url.startsWith('file:')) {
           // Lokalt läge: page.request kan inte hämta file:-URL:er.
@@ -237,6 +239,7 @@ try {
         });
         return { readyState: v.readyState, duration: v.duration, w: v.videoWidth, h: v.videoHeight };
       });
+      await page.waitForTimeout(250);
       if (Number.isFinite(meta.duration) && meta.duration > 0) {
         if (meta.duration < 115 || meta.duration > 125) {
           failures.push(`[${width}px] videolängd ${meta.duration.toFixed(1)}s utanför 115-125s`);
@@ -248,15 +251,18 @@ try {
       }
     }
 
-    // A5: console. Över file:// avbryter Chromium videons range-request
-    // (ERR_ABORTED) eftersom file: inte stödjer Range — det är ett artefakt
-    // av lokalt läge, inte ett sidfel. Över http räknas allt.
-    const isFile = target.startsWith('file:');
+    // A5: console. Enda tolererade avvikelsen: ERR_ABORTED för själva
+    // mediafilerna. Med preload="metadata" hämtar Chromium bara filens
+    // huvud och avbryter sedan requesten — normalt mediabeteende, inte ett
+    // sidfel. Att filerna FINNS bevisas separat ovan med en egen request
+    // som kräver HTTP 200/206 (den kontrollen var röd innan videon fanns).
+    // Filtret är bundet till exakt de två URL:erna; allt annat blir rött.
+    const mediaUrls = mediaRels.map((rel) => new URL(rel, target).href);
     const realErrors = consoleErrors.filter(
-      (e) => !(isFile && e.includes('net::ERR_ABORTED') && e.includes('.mp4'))
+      (e) => !(e.includes('net::ERR_ABORTED') && mediaUrls.some((u) => e.includes(u)))
     );
     if (realErrors.length !== consoleErrors.length) {
-      notes.push(`[${width}px] ignorerade ${consoleErrors.length - realErrors.length} file://-ERR_ABORTED för videon (kör mot http för skarp kontroll)`);
+      notes.push(`[${width}px] ignorerade ${consoleErrors.length - realErrors.length} ERR_ABORTED för mediafilerna (preload="metadata" avbryter requesten; filernas existens kontrolleras separat)`);
     }
     if (realErrors.length) {
       failures.push(`[${width}px] console-fel: ${realErrors.join(' | ')}`);
