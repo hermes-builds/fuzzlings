@@ -41,8 +41,12 @@ const REQUIRED_SECTIONS = [
 
 const VIEWPORTS = [375, 320];
 
-const target =
-  process.argv[2] || pathToFileURL(resolve('index.html')).href;
+// Argumentet får vara en http(s)-URL eller en filsökväg; en bar sökväg
+// normaliseras till file:// (annars ser Chromium den som ogiltig URL).
+const raw = process.argv[2] || 'index.html';
+const target = /^[a-z][a-z0-9+.-]*:/i.test(raw)
+  ? raw
+  : pathToFileURL(resolve(raw)).href;
 
 const failures = [];
 const notes = [];

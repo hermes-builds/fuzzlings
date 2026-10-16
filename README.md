@@ -65,6 +65,7 @@ python3 make-sfx.py --out sfx        # faller tillbaka på ffmpeg-syntes vid fel
 PLAYWRIGHT_BROWSERS_PATH=/tmp/pw/browsers \
   node render-frames.mjs --out /tmp/fz-frames
 #   --preview ger i stället en stillbild per beat, bra för snabb granskning
+#   --refs ger bara de 15 rutor verify-video.py jämför mot (~8 s)
 
 # 3. mixa + koda
 ./build-video.sh /tmp/fz-frames ../media/animatic.mp4
@@ -89,6 +90,18 @@ alltid samma pixlar — vilket är det som gör rutjämförelsen i
 återskapas från `sfx.json` och deras provenance loggas lokalt.
 
 ## Verifiering
+
+```sh
+make verify     # sajten + den kodade videon; exit 0 = allt grönt
+```
+
+Det är hela verifieringen. `make verify` renderar själv de 15
+referensrutor videokontrollen behöver (~8 s), så kommandot fungerar direkt
+efter en klon utan att man först måste rendera alla 2400 rutor. Kör mot
+den publicerade sajten med `make site URL=https://hermes-builds.github.io/fuzzlings/`.
+Övriga mål står kommenterade i `Makefile`.
+
+De två kontrollerna i detalj:
 
 `tools/check-site.mjs` kontrollerar i headless Chromium att:
 
