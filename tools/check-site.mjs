@@ -157,18 +157,26 @@ try {
     }
 
     // A3 (skarpare): karaktärernas namn och epitet måste återges ORDAGRANT
-    // som i källdokumentet — även där källsträngen ser trasig ut. Att
-    // "städa" källan är en innehållsändring, inte ett designval.
+    // som i källdokumentet. Att "städa" en källsträng som ser trasig ut är
+    // en innehållsändring, inte ett designval — rätta källan i stället.
+    // Läs namn och epitet från VARJE kort för sig — en sökning över hela
+    // sektionen matchar också brödtexten och kan aldrig bli röd.
     const SOURCE_EPITHETS = [
-      ['Zyp', 'Den nyfikna'],
-      ['Dolm', 'Den försiktiga'],
-      ['Bix', 'Translation äxlaren'],
+      ['zyp', 'Zyp', 'Den nyfikna'],
+      ['dolm', 'Dolm', 'Den försiktiga'],
+      ['bix', 'Bix', 'Bus-anstiftaren'],
     ];
-    const chrText = await page.locator('#karaktarer').innerText();
-    for (const [name, epithet] of SOURCE_EPITHETS) {
-      if (!chrText.includes(name)) failures.push(`[${width}px] karaktären ${name} saknas`);
-      if (!chrText.includes(epithet)) {
-        failures.push(`[${width}px] ${name}: epitetet "${epithet}" saknas (källans ordalydelse)`);
+    for (const [slug, name, epithet] of SOURCE_EPITHETS) {
+      const card = page.locator(`#karaktarer .chr-${slug}`);
+      if ((await card.count()) !== 1) {
+        failures.push(`[${width}px] kortet .chr-${slug} saknas`);
+        continue;
+      }
+      const got = (await card.locator('h3').innerText()).trim();
+      if (got !== name) failures.push(`[${width}px] .chr-${slug} heter "${got}", väntade "${name}"`);
+      const role = (await card.locator('.chr-role').innerText()).trim();
+      if (!role.includes(epithet)) {
+        failures.push(`[${width}px] ${name}: epitetet är "${role}", källan har "${epithet}"`);
       }
     }
 
